@@ -1,63 +1,66 @@
 ```markdown
-# Weather Bot Agent (Google ADK)
+# Sequential Travel & Weather Agent (Google ADK)
 
-This project demonstrates a robust implementation of a **Sequential Agent** using the Google ADK framework. Unlike simple scripts, this project utilizes **Function Calling** to bridge the gap between Large Language Models (Gemini) and real-world data (OpenWeatherMap), decoupled via strict configuration management.
+This project demonstrates an advanced architectural pattern using the **Sequential Agent** model within the Google ADK framework. It orchestrates multiple specialized sub-agents to solve complex, multi-step user requests by chaining inputs and outputs.
 
 ## 🧠 Logic & Visualization
 
-To understand this architecture, we use the **"Brain & Tool Belt" Analogy**:
+To understand this architecture, we use the **"Assembly Line" Analogy**:
 
-- **The Brain (LLM/Gemini):** The cognitive engine that understands natural language but lacks real-time knowledge.
-- **The Tool Belt (Tools):** Specific Python functions wrapped as `FunctionTools`.
-    1.  **Weather Tool (`get_weather`):** A rigid interface that validates inputs and fetches live data.
-- **The Agent (Orchestrator):** The `LlmAgent` that listens to the user, decides which tool to pull from the belt, executes it, and formats the result according to strict instructions.
-```
+- **The Coordinator (Sequential Agent):** The main manager (`trip_agent`) that receives the task and passes it down the line.
+- **The Specialists (Sub-Agents):**
+    1.  **Weather Bot:** Specialist in meteorological data. Checks the city and current conditions using `OpenWeatherMap`.
+    2.  **Travel Guide:** Specialist in tourism. Uses AI search (Tavily) to find hotels, restaurants, and attractions based on the context.
+- **The Workflow:** The output of the first agent becomes the context for the next, allowing for rich, context-aware responses.
 
 ### Architecture Diagram
 
-The Agent acts as a middleware, translating user intent into API calls and raw JSON into human-readable Russian text.
+The system executes agents in a strict sequence, aggregating the results into a final report.
+```
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Agent as LlmAgent (Client)
-    participant LLM as Google Gemini
-    participant Tool as Weather Function (API)
+    participant Root as Sequential Agent
+    participant WeatherBot as Weather Sub-Agent
+    participant TravelBot as Travel Sub-Agent
+    participant APIs as External APIs
 
-    Note over User, Tool: Initialization Phase
-    Agent->>LLM: Register Tool Definition [get_weather(city)]
+    User->>Root: "Plan a trip to Buenos Aires"
 
-    Note over User, Tool: Execution Phase
-    User->>Agent: "What is the weather in Buenos Aires?"
-    Agent->>LLM: Send Prompt + Tool Definitions
-    LLM-->>Agent: Request Function Call: get_weather("Buenos Aires")
+    Note over Root, WeatherBot: Step 1: Weather Check
+    Root->>WeatherBot: Activate
+    WeatherBot->>APIs: get_weather("Buenos Aires")
+    APIs-->>WeatherBot: {temp: 27°C, clear sky...}
+    WeatherBot-->>Root: Formatted Weather Report
 
-    Agent->>Tool: Execute Python Code
-    Tool->>Tool: GET api.openweathermap.org
-    Tool-->>Agent: Return JSON {temp: 27.44, humidity: 43...}
+    Note over Root, TravelBot: Step 2: Travel Search
+    Root->>TravelBot: Activate (Context: Weather Report)
+    TravelBot->>APIs: get_tavily_search("Travel guide...")
+    APIs-->>TravelBot: Search Results (Hotels, Spots)
+    TravelBot-->>Root: Formatted Travel Guide
 
-    Agent->>LLM: Send Function Result
-    LLM-->>Agent: Generate Final Response (Formatted)
-    Agent->>User: Display Result
+    Root->>User: Final Aggregated Response
 
 ```
 
 ## 📂 Project Structure
 
-The project follows a modular structure separating the tool logic, configuration, and agent definition.
+The project has expanded to include multiple tools and updated configuration models.
 
 ```text
 .
 ├── Makefile                        # Automation: lint, test, run, clean
-├── pyproject.toml                  # Dependencies (google-adk, pydantic)
+├── pyproject.toml                  # Dependencies (google-adk, tavily-python)
 ├── README.md                       # Documentation
-├── src
-│   └── sequential_agents
-│       ├── agent.py                # AGENT: The LlmAgent configuration & Prompt
-│       ├── config.py               # CONFIG: Pydantic settings & validation
-│       └── tools
-│           └── weather.py          # TOOL: OpenWeatherMap API implementation
-└── tests                           # Unit Tests
+└── src
+    └── sequential_agents
+        ├── agent.py                # LOGIC: SequentialAgent & Sub-agents definition
+        ├── config.py               # CONFIG: Pydantic settings for all providers
+        └── tools
+            ├── tavily.py           # TOOL: AI Search Engine integration
+            └── weather.py          # TOOL: OpenWeatherMap integration
+
 
 ```
 
@@ -77,11 +80,13 @@ Create a `.env` file in the root directory. This project uses `pydantic-settings
 ```ini
 # --- Google GenAI Settings ---
 GOOGLE__GENAI_USE_VERTEXAI=false
-GOOGLE__API_KEY=your_google_api_key_here
-GOOGLE__TEST_MODEL=gemini-2.5-flash-lite
+GOOGLE__API_KEY=your_google_api_key
+# GOOGLE__CLOUD_PROJECT=your_project_id (Required if VERTEXAI=true)
+# GOOGLE__CLOUD_LOCATION=us-central1 (Required if VERTEXAI=true)
 
-# --- Weather Provider Settings ---
-WEATHER__API_KEY=your_openweathermap_api_key_here
+# --- Tool Providers ---
+WEATHER__API_KEY=your_openweathermap_api_key
+TAVILY__API_KEY=tvly-your_tavily_api_key
 
 ```
 
@@ -98,11 +103,11 @@ make run
 
 ### Expected Output
 
-Observe the system logs. The agent initializes, connects to the model, and creates the format strictly as requested in the system prompt.
+The agent provides a rich, multi-sectional report formatted strictly according to the prompts.
 
 ```text
 INFO:sequential_agents.agent:Starting in API Key mode with model gemini-2.5-flash-lite
-USER: Какая погода в Буэнос-Айресе?
+USER: Plan a trip to Buenos Aires
 
 AGENT:
 **Буэнос-Айрес**
@@ -111,79 +116,73 @@ AGENT:
 
 ☀️ Погода: Ясно
 
-💧 Влажность: 43%
+... (Weather Section Ends) ...
 
-🎈 Давление: 1008 гПа
+🏨 **Топ-3 Отеля:**
 
-🌬️ Ветер: 5.66 м/с
+Alvear Palace — от $450/ночь (Роскошный стиль)
 
-🌥️ Облачность: 0%
+Faena Hotel — от $380/ночь (Современный дизайн)
+
+🍽️ **Рестораны:**
+
+Don Julio — Стейк-хаус (Топ-1 Латинской Америки)
+
+El Preferido de Palermo — Традиционная кухня
+
+🗽 **Достопримечательности:**
+
+Обелиск — Символ города
+
+Театр Колон — Оперный театр
 
 ```
 
 ## 💻 Code Highlights
 
-### 1. The Tool Logic (`weather.py`)
+### 1. Sequential Agent Composition (`agent.py`)
 
-Provides the raw capability to fetch data. Note the use of `Pydantic` models for strict typing of the return data.
+We compose a `SequentialAgent` from two distinct `LlmAgent` instances. The `sub_agents` list defines the execution order.
 
 ```python
-class WeatherType(BaseModel):
-    city: str = Field(..., description="The city name.")
-    temperature: float = Field(..., description="The current temperature...")
-    # ... other fields
-
-def get_weather(city: str) -> Dict[str, Any]:
-    """The current weather in the city."""
-    # ... requests logic ...
-    return weather_obj.model_dump()
+root_agent = SequentialAgent(
+    name="trip_agent",
+    description="Fetch the weather and travel info of city",
+    sub_agents=[weather_agent, travel_agent] # <--- Chained Execution
+)
 
 ```
 
-### 2. The Configuration (`config.py`)
+### 2. Tavily Search Tool (`tavily.py`)
 
-Uses `pydantic-settings` to manage secrets securely, supporting both VertexAI and API Key modes via environment variables.
+We use `TavilyClient` specifically designed for LLM agents to get curated context instead of raw HTML.
 
 ```python
-class GoogleModel(BaseModel):
-    genai_use_vertexai: bool
-    vertexai_model: str = Field(default="gemini-3-pro-preview")
-    api_key: SecretStr
-    # ...
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_nested_delimiter="__")
-    google: GoogleModel
-    weather: WeatherModel
+def get_tavily_search(city: str) -> Dict[str, Any]:
+    search_result = tavily_client.search(
+        query=f"Travel guide for {city}...",
+        include_answer="advanced"
+    )
+    return search_result
 
 ```
 
-### 3. The Agent Definition (`agent.py`)
+### 3. Strict Formatting Prompts (`agent.py`)
 
-The Agent integrates the model and the tool. The strict formatting instructions ensure the output is always consistent.
+The prompt engineering enforces a UI-like structure using standard text.
 
 ```python
-# 1. Initialize Tool
-weather = FunctionTool(get_weather)
-
-# 2. Define Agent
-root_agent = LlmAgent(
-    name="Weather_bot",
-    model=my_model,
-    instruction="""
-    ROLE: You are a helpful weather bot.
-    LANGUAGE: Output STRICTLY in Russian.
+instruction="""
     FORMATTING RULES (CRITICAL):
     1. City name must be **Bold** on the first line.
-    2. You MUST use a DOUBLE NEW LINE...
-    """,
-    tools=[weather] # <--- Tool injection
-)
+    2. You MUST use a DOUBLE NEW LINE (an empty line) between every parameter...
+    3. Do not use bullet points...
+"""
 
 ```
 
 ## 🏆 Key Takeaways
 
-* **Strict Formatting:** By embedding strict formatting rules in the `instruction`, we force the LLM to act as a UI renderer.
-* **Dual Mode Support:** The code dynamically switches between `VertexAI` and `AI Studio` (API Key) based on the config.
-* **Type Safety:** Using `Pydantic` for both settings and tool data structures ensures runtime safety and clear error messages.
+* **Sequential Chaining:** The ability to break down a complex "Trip Planning" task into atomic steps (Weather -> Places).
+* **Dual-LLM Configuration:** Each sub-agent can theoretically run on a different model (e.g., Gemini for logic, Claude for writing) if configured.
+* **Strict Output Control:** By embedding formatting rules in the `instruction`, we force the LLM to act as a UI renderer.
