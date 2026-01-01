@@ -6,13 +6,15 @@ class GoogleModel(BaseModel):
     genai_use_vertexai: bool
     cloud_location: str
     cloud_project: str
-    vertexai_model: str = Field(default="gemini-3-pro-preview")
-    
+
     api_key: SecretStr
-    test_model: str = Field(default="gemini-2.5-flash-lite")
 
 
 class WeatherModel(BaseModel):
+    api_key: SecretStr
+
+
+class TavilyModel(BaseModel):
     api_key: SecretStr
 
 
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
 
     google: GoogleModel
     weather: WeatherModel
+    tavily: TavilyModel
 
 
 settings = Settings()
